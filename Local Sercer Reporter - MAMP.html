@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AFL Possession Analysis Report</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Libraries for PDF generation, charts, and chart labels -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .chart-container {
+            height: 300px; /* Default height */
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 400px; /* Taller on larger screens */
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <!-- Login Overlay -->
+    <div id="login-overlay" class="fixed inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center z-50">
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm">
+            <h2 class="text-2xl font-bold text-center text-gray-800 mb-6">Coach Login</h2>
+            <div class="space-y-4">
+                <div>
+                    <label for="password-input" class="block text-sm font-medium text-gray-700">Password</label>
+                    <input type="password" id="password-input" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <button id="login-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-blue-700 transition-colors">
+                    Access Reports
+                </button>
+                <p id="login-error" class="text-red-500 text-sm text-center hidden">Incorrect password. Please try again.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Application Content (Initially Hidden) -->
+    <div id="main-content" class="container mx-auto p-4 md:p-8 hidden">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-white bg-blue-900 p-4 rounded-lg">AFL Possession Analysis Report</h1>
+            <p class="text-md text-gray-600 mt-4">Select a match from the dropdown to generate a report.</p>
+        </header>
+
+        <!-- Control panel for selecting the XML file -->
+        <div class="bg-white p-6 rounded-xl shadow-md mb-8">
+            <h2 class="text-2xl font-bold mb-4 text-gray-800">Select Match File</h2>
+            <div class="flex flex-col md:flex-row items-center gap-4">
+                <div class="flex-grow">
+                    <label for="xml-file-select" class="block text-sm font-medium text-gray-700">Match Report File</label>
+                    <select id="xml-file-select" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                        <!-- Options will be populated by JavaScript -->
+                    </select>
+                </div>
+                <button id="generate-report-btn" class="w-full md:w-auto bg-blue-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-blue-700 transition-colors mt-4 md:mt-0 self-end">
+                    Generate Report
+                </button>
+            </div>
+        </div>
+
+        <!-- Report Section -->
+        <div id="report-section" class="hidden bg-white p-4 md:p-6 rounded-xl shadow-lg">
+            <div id="report-header" class="flex justify-between items-center mb-4 border-b pb-3 bg-blue-900 text-white p-4 rounded-t-lg">
+                <div>
+                    <h2 id="report-title" class="text-2xl font-bold">Possession Report</h2>
+                    <p id="team-names" class="text-lg"></p>
+                </div>
+                <img id="report-logo" src="https://placehold.co/100x100/E2E8F0/4A5568?text=Logo" alt="Team Logo" class="h-20 w-20 object-contain bg-white rounded-md p-1">
+            </div>
+
+            <div id="report-content">
+                <!-- Data will be populated here -->
+            </div>
+
+            <div id="download-buttons" class="mt-6 text-center">
+                <button id="download-pdf" class="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-blue-700 transition-colors mr-4">Download as PDF</button>
+                <button id="download-csv" class="bg-green-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-green-700 transition-colors">Download as CSV</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Message Box -->
+    <div id="message-box" class="hidden fixed top-5 right-5 bg-red-500 text-white p-4 rounded-lg shadow-lg z-50">
+        <p id="message-text"></p>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        // 1. Add the filenames of your XML reports to this list.
+        const xmlFiles = [
+            "RD8_Parramatta Goannas_31052025.xml",
+            "RD12_North Shore Bombers_05072024.xml"
+            // Add more files here, e.g., "RD13_Some Team_12072024.xml"
+        ];
+
+        // 2. Set the filename of your team logo. It must be in the same folder.
+        const logoFileName = "camden_cats_logo.jpg"; // Example: "my_team_logo.png"
+
+        // 3. Set the password to access the reports.
+        // IMPORTANT: This is NOT secure. It only hides the data from casual visitors.
+        const accessPassword = "camdencats123"; // CHANGE THIS!
+
+        // --- SCRIPT ---
+        
+        // Register the datalabels plugin globally
+        Chart.register(ChartDataLabels);
+
+        // --- DOM Element References ---
+        const loginOverlay = document.getElementById('login-overlay');
+        const mainContent = document.getElementById('main-content');
+        const passwordInput = document.getElementById('password-input');
+        const loginBtn = document.getElementById('login-btn');
+        const loginError = document.getElementById('login-error');
+        
+        const fileSelect = document.getElementById('xml-file-select');
+        const generateBtn = document.getElementById('generate-report-btn');
+        const reportSection = document.getElementById('report-section');
+        const reportContent = document.getElementById('report-content');
+        const reportTitle = document.getElementById('report-title');
+        const teamNamesDisplay = document.getElementById('team-names');
+        const downloadPdfBtn = document.getElementById('download-pdf');
+        const downloadCsvBtn = document.getElementById('download-csv');
+        const reportLogo = document.getElementById('report-logo');
+        const messageBox = document.getElementById('message-box');
+        const messageText = document.getElementById('message-text');
+
+        let reportData = {};
+        let team1Name = 'Team 1';
+        let team2Name = 'Opposition';
+
+        // --- Event Listeners ---
+        document.addEventListener('DOMContentLoaded', () => {
+            // Login functionality
+            loginBtn.addEventListener('click', checkPassword);
+            passwordInput.addEventListener('keyup', (event) => {
+                if (event.key === "Enter") {
+                    checkPassword();
+                }
+            });
+
+            // Main app functionality
+            populateDropdown();
+            generateBtn.addEventListener('click', handleGenerateReport);
+            downloadPdfBtn.addEventListener('click', downloadPDF);
+            downloadCsvBtn.addEventListener('click', downloadCSV);
+        });
+
+        // --- Login Function ---
+        function checkPassword() {
+            if (passwordInput.value === accessPassword) {
+                loginOverlay.classList.add('hidden');
+                mainContent.classList.remove('hidden');
+            } else {
+                loginError.classList.remove('hidden');
+                passwordInput.value = '';
+            }
+        }
+
+        // --- Core Functions ---
+
+        /**
+         * Populates the dropdown menu with the files from the xmlFiles array.
+         */
+        function populateDropdown() {
+            fileSelect.innerHTML = '<option value="">-- Select a Match Report --</option>'; // Clear and add placeholder
+            xmlFiles.forEach(fileName => {
+                const option = document.createElement('option');
+                option.value = fileName;
+                // Clean up the filename for display
+                option.textContent = fileName.replace('.xml', '').replace(/_/g, ' ');
+                fileSelect.appendChild(option);
+            });
+        }
+
+        /**
+         * Handles the "Generate Report" button click.
+         */
+        function handleGenerateReport() {
+            const selectedFile = fileSelect.value;
+            if (!selectedFile) {
+                showMessage('Please select a file from the dropdown.');
+                return;
+            }
+            loadAndProcessFile(selectedFile);
+        }
+        
+        /**
+         * Fetches the selected XML file from the local server and starts the report generation process.
+         * @param {string} fileName - The name of the XML file to load.
+         */
+        async function loadAndProcessFile(fileName) {
+            try {
+                const response = await fetch(encodeURI(fileName));
+                
+                if (!response.ok) {
+                    throw new Error(`Could not load file (Status: ${response.status})`);
+                }
+
+                const buffer = await response.arrayBuffer();
+                const decoder = new TextDecoder('utf-16le');
+                const xmlString = decoder.decode(buffer);
+                
+                const matchDetails = parseFileName(fileName);
+                team2Name = matchDetails.opposition;
+
+                parseXML(xmlString);
+                generateReport(matchDetails);
+                reportSection.classList.remove('hidden');
+
+            } catch (error) {
+                console.error("Error loading or parsing file:", error);
+                showMessage(`Failed to process report: ${error.message}`);
+            }
+        }
+
+        /**
+         * Parses the filename to extract structured match data.
+         * @param {string} fileName - The filename to parse.
+         * @returns {object} An object with round, opposition, and date.
+         */
+        function parseFileName(fileName) {
+            const nameWithoutExt = fileName.replace('.xml', '');
+            const parts = nameWithoutExt.split('_');
+            
+            const round = parts[0].replace('RD', 'Round ');
+            const dateStr = parts[parts.length - 1];
+            const opposition = parts.slice(1, -1).join(' ');
+
+            let formattedDate = '';
+            if (dateStr && dateStr.length === 8) {
+                const day = dateStr.substring(0, 2);
+                const month = dateStr.substring(2, 4);
+                const year = dateStr.substring(4, 8);
+                const dateObj = new Date(`${year}-${month}-${day}T00:00:00`);
+                if (!isNaN(dateObj)) {
+                     formattedDate = dateObj.toLocaleDateString('en-AU', {
+                        day: 'numeric', month: 'long', year: 'numeric'
+                    });
+                }
+            }
+            return { round, opposition, date: formattedDate };
+        }
+
+        /**
+         * Parses the XML string and calculates all possession metrics.
+         * @param {string} xmlString - The raw XML content from the file.
+         */
+        function parseXML(xmlString) {
+            const parser = new DOMParser();
+            
+            let cleanXmlString = xmlString.trim();
+            if (cleanXmlString.charCodeAt(0) === 0xFEFF) {
+                cleanXmlString = cleanXmlString.slice(1);
+            }
+
+            const xmlDoc = parser.parseFromString(cleanXmlString, "application/xml");
+
+            const errorNode = xmlDoc.querySelector("parsererror");
+            if (errorNode) {
+                console.error("XML Parsing Error Details:", errorNode.textContent);
+                throw new Error("Invalid XML format. Press F12 and check the Console for details.");
+            }
+
+            const instances = xmlDoc.getElementsByTagName('instance');
+            
+            reportData = {};
+            team1Name = 'Team 1';
+            let team1XmlIdentifier = ''; 
+
+            for (let i = 0; i < instances.length; i++) {
+                const codeNode = instances[i].getElementsByTagName('code')[0];
+                if (codeNode) {
+                    const codeText = codeNode.textContent.trim();
+                    if (codeText.toLowerCase().includes('in possession') && !codeText.toLowerCase().includes('opposition')) {
+                        let detectedName = codeText.split(' in Possession')[0].trim();
+                        team1XmlIdentifier = detectedName.toLowerCase();
+                        team1Name = detectedName.charAt(0).toUpperCase() + detectedName.slice(1);
+                        if (team1Name.toLowerCase() === 'cats') team1Name = 'Camden Cats';
+                        break;
+                    }
+                }
+            }
+            
+            let lastKnownQuarter = 'Q1';
+            for (let i = 0; i < instances.length; i++) {
+                const instance = instances[i];
+                const startNode = instance.getElementsByTagName('start')[0];
+                const endNode = instance.getElementsByTagName('end')[0];
+                const codeNode = instance.getElementsByTagName('code')[0];
+                const labelNode = instance.getElementsByTagName('label')[0];
+
+                if (!startNode || !endNode || !codeNode) continue;
+
+                const start = parseFloat(startNode.textContent);
+                const end = parseFloat(endNode.textContent);
+                const code = codeNode.textContent.trim();
+                
+                let currentQuarter = lastKnownQuarter;
+                if (labelNode && labelNode.getElementsByTagName('text')[0]) {
+                    const labelText = labelNode.getElementsByTagName('text')[0].textContent.trim();
+                    if (labelText.startsWith('Q')) {
+                        currentQuarter = labelText;
+                        lastKnownQuarter = currentQuarter;
+                    }
+                }
+                
+                const duration = end - start;
+                if (isNaN(duration) || duration < 0) continue;
+
+                if (!reportData[currentQuarter]) {
+                    reportData[currentQuarter] = { totalTime: 0, teamPossession: 0, teamForwardHalf: 0, oppoPossession: 0, oppoForwardHalf: 0, inDispute: 0 };
+                }
+
+                reportData[currentQuarter].totalTime += duration;
+
+                if (code.includes('In Dispute')) {
+                    reportData[currentQuarter].inDispute += duration;
+                } else if (code.toLowerCase().includes(team1XmlIdentifier) && code.toLowerCase().includes('possession')) {
+                     if (code.toLowerCase().includes('forward half')) reportData[currentQuarter].teamForwardHalf += duration;
+                    reportData[currentQuarter].teamPossession += duration;
+                } else if (code.toLowerCase().includes('opposition in possession')) {
+                     if (code.toLowerCase().includes('forward half')) reportData[currentQuarter].oppoForwardHalf += duration;
+                    reportData[currentQuarter].oppoPossession += duration;
+                }
+            }
+        }
+
+        // --- Report Generation ---
+
+        function formatTime(totalSeconds) {
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = Math.round(totalSeconds % 60);
+            return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        }
+
+        /**
+         * Renders the full report with tables and charts into the DOM.
+         * @param {object} matchDetails - The details extracted from the filename.
+         */
+        function generateReport(matchDetails) {
+            reportContent.innerHTML = ''; // Clear previous report
+            
+            // Set the logo in the report header
+            reportLogo.src = logoFileName;
+            reportLogo.onerror = () => { // Fallback if the logo fails to load
+                reportLogo.src = 'https://placehold.co/100x100/E2E8F0/4A5568?text=Logo';
+            };
+
+            reportTitle.textContent = `Possession Report: ${team1Name} vs ${team2Name}`;
+            teamNamesDisplay.textContent = `${matchDetails.round} - ${matchDetails.date}`;
+
+            const QUARTER_DURATION_SECONDS = 22 * 60;
+            const quarters = Object.keys(reportData).sort((a, b) => parseInt(a.replace('Q','')) - parseInt(b.replace('Q','')));
+
+            quarters.forEach(quarter => {
+                const data = reportData[quarter];
+                const total = data.totalTime;
+
+                const teamPossessionPercent = total > 0 ? (data.teamPossession / total) * 100 : 0;
+                const teamForwardHalfPercent = total > 0 ? (data.teamForwardHalf / total) * 100 : 0;
+                const oppoPossessionPercent = total > 0 ? (data.oppoPossession / total) * 100 : 0;
+                const oppoForwardHalfPercent = total > 0 ? (data.oppoForwardHalf / total) * 100 : 0;
+                const inDisputePercent = total > 0 ? (data.inDispute / total) * 100 : 0;
+                const ballInPlayPercent = (total / QUARTER_DURATION_SECONDS * 100);
+
+                const quarterDiv = document.createElement('div');
+                quarterDiv.className = 'mb-6';
+                quarterDiv.innerHTML = `
+                    <h3 class="text-xl font-semibold mb-3 p-3 bg-blue-900 text-white rounded-md">Quarter ${quarter.replace('Q','')}</h3>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-center">
+                        <div>
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-gray-100">
+                                        <th class="p-2 font-semibold text-sm">Metric</th>
+                                        <th class="p-2 font-semibold text-sm text-center">Time (MM:SS)</th>
+                                        <th class="p-2 font-semibold text-sm text-center">% of Ball in Play</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr class="border-b border-gray-200"><td class="p-2 font-medium text-blue-800">${team1Name} Possession</td><td class="p-2 text-center">${formatTime(data.teamPossession)}</td><td class="p-2 text-center">${teamPossessionPercent.toFixed(1)}%</td></tr>
+                                    <tr class="border-b border-gray-200"><td class="p-2 pl-6 text-blue-600">${team1Name} Fwd Half Possession</td><td class="p-2 text-center">${formatTime(data.teamForwardHalf)}</td><td class="p-2 text-center">${teamForwardHalfPercent.toFixed(1)}%</td></tr>
+                                    <tr class="border-b border-gray-200"><td class="p-2 font-medium text-red-800">${team2Name} Possession</td><td class="p-2 text-center">${formatTime(data.oppoPossession)}</td><td class="p-2 text-center">${oppoPossessionPercent.toFixed(1)}%</td></tr>
+                                    <tr class="border-b border-gray-200"><td class="p-2 pl-6 text-red-600">${team2Name} Fwd Half Possession</td><td class="p-2 text-center">${formatTime(data.oppoForwardHalf)}</td><td class="p-2 text-center">${oppoForwardHalfPercent.toFixed(1)}%</td></tr>
+                                    <tr class="border-b border-gray-200"><td class="p-2 font-medium text-gray-700">Ball in Dispute</td><td class="p-2 text-center">${formatTime(data.inDispute)}</td><td class="p-2 text-center">${inDisputePercent.toFixed(1)}%</td></tr>
+                                    <tr class="bg-gray-50 font-bold"><td class="p-2">Total Ball in Play</td><td class="p-2 text-center">${formatTime(total)}</td><td class="p-2 text-center" title="Percentage of 22 minute quarter">${ballInPlayPercent.toFixed(1)}%</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="chart-container"><canvas id="chart-${quarter}"></canvas></div>
+                    </div>
+                `;
+                reportContent.appendChild(quarterDiv);
+
+                // Create Chart for the quarter
+                const ctx = document.getElementById(`chart-${quarter}`).getContext('2d');
+                new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: [`${team1Name} Possession`, `${team2Name} Possession`, 'Ball in Dispute'],
+                        datasets: [{ data: [teamPossessionPercent, oppoPossessionPercent, inDisputePercent], backgroundColor: ['#2563EB', '#DC2626', '#6B7280'], borderColor: '#FFFFFF', borderWidth: 3 }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: true, position: 'top' },
+                            tooltip: { callbacks: { label: (c) => `${c.label}: ${c.parsed.toFixed(1)}%` } },
+                            datalabels: { color: '#fff', font: { weight: 'bold', size: 14 }, formatter: (v) => v < 5 ? '' : v.toFixed(1) + '%' }
+                        }
+                    }
+                });
+            });
+        }
+
+        // --- Download Functionality ---
+
+        function downloadPDF() {
+            const reportElement = document.getElementById('report-section');
+            const downloadButtons = document.getElementById('download-buttons');
+            downloadButtons.style.display = 'none';
+
+            html2canvas(reportElement, { scale: 2, useCORS: true }).then(canvas => {
+                const imgData = canvas.toDataURL('image/png');
+                const { jsPDF } = window.jspdf;
+                const pdfWidth = 210;
+                const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+                const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+                pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+                pdf.save(`${team1Name}_vs_${team2Name}_Report.pdf`);
+                downloadButtons.style.display = 'block';
+            }).catch(err => {
+                console.error("Error generating PDF:", err);
+                showMessage("Could not generate PDF.");
+                downloadButtons.style.display = 'block';
+            });
+        }
+
+        function downloadCSV() {
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += `Metric,Quarter,Time (MM:SS),Time (s),Percentage of Ball in Play\n`;
+            const quarters = Object.keys(reportData).sort((a, b) => parseInt(a.replace('Q','')) - parseInt(b.replace('Q','')));
+            quarters.forEach(quarter => {
+                const data = reportData[quarter];
+                const total = data.totalTime;
+                const rows = [
+                    [`${team1Name} Possession`, quarter, formatTime(data.teamPossession), data.teamPossession.toFixed(2), total > 0 ? (data.teamPossession / total * 100).toFixed(1) : 0],
+                    [`${team1Name} Fwd Half Possession`, quarter, formatTime(data.teamForwardHalf), data.teamForwardHalf.toFixed(2), total > 0 ? (data.teamForwardHalf / total * 100).toFixed(1) : 0],
+                    [`${team2Name} Possession`, quarter, formatTime(data.oppoPossession), data.oppoPossession.toFixed(2), total > 0 ? (data.oppoPossession / total * 100).toFixed(1) : 0],
+                    [`${team2Name} Fwd Half Possession`, quarter, formatTime(data.oppoForwardHalf), data.oppoForwardHalf.toFixed(2), total > 0 ? (data.oppoForwardHalf / total * 100).toFixed(1) : 0],
+                    ["Ball in Dispute", quarter, formatTime(data.inDispute), data.inDispute.toFixed(2), total > 0 ? (data.inDispute / total * 100).toFixed(1) : 0],
+                    ["Total Ball in Play", quarter, formatTime(total), total.toFixed(2), 100]
+                ];
+                rows.forEach(rowArray => { csvContent += rowArray.join(",") + "\r\n"; });
+            });
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `${team1Name}_vs_${team2Name}_data.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // --- Utility ---
+        function showMessage(message) {
+            messageText.textContent = message;
+            messageBox.classList.remove('hidden');
+            setTimeout(() => { messageBox.classList.add('hidden'); }, 3000);
+        }
+
+    </script>
+</body>
+</html>
